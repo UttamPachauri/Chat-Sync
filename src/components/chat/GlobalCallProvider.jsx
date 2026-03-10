@@ -2,7 +2,6 @@
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useUser } from '@/lib/hooks/useUser'
 import { IncomingCallModal } from '@/components/chat/IncomingCallModal'
 import { CallModal } from '@/components/chat/CallModal'
 import { VideoCallModal } from '@/components/chat/VideoCallModal'
@@ -19,8 +18,21 @@ const ICE_SERVERS = {
 }
 
 export function GlobalCallProvider({ children }) {
-  const { user, profile } = useUser()
   const supabase = createClient()
+
+  // Read session once — no extra auth listener, avoids conflicting with page-level useUser()
+  const [userId,  setUserId]  = useState(null)
+  const [profile, setProfile] = useState(null)
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const uid = session?.user?.id ?? null
+      setUserId(uid)
+      if (uid) {
+        supabase.from('profiles').select('*').eq('id', uid).single()
+          .then(({ data }) => setProfile(data ?? null))
+      }
+    })
+  }, [])
 
   // ── Refs for stable access inside async closures ──────────────────────────
   const channelRef    = useRef(null)
@@ -49,7 +61,7 @@ export function GlobalCallProvider({ children }) {
   // keep refs in sync with state
   useEffect(() => { incomingRef.current  = incomingCall }, [incomingCall])
   useEffect(() => { activeTypeRef.current = activeCall?.callType }, [activeCall])
-  useEffect(() => { userIdRef.current    = user?.id }, [user?.id])
+  useEffect(() => { userIdRef.current    = userId }, [userId])
 
   // ── Core WebRTC helpers (stable – use refs, not state) ────────────────────
   const getMedia = useCallback(async (callType) => {
@@ -112,20 +124,20 @@ export function GlobalCallProvider({ children }) {
 
   // ── Supabase Realtime subscription ───────────────────────────────────────
   useEffect(() => {
-    if (!user?.id) return
-    const userId = user.id
+    if (!userId) return
+    const uid = userId
 
     channelRef.current = supabase
       .channel('global-calls', { config: { broadcast: { self: false } } })
 
       // 1. Callee receives ring
       .on('broadcast', { event: 'call:incoming' }, ({ payload }) => {
-        if (payload.calleeId === userId) setIncomingCall(payload)
+        if (payload.calleeId === uid) setIncomingCall(payload)
       })
 
       // 2. Caller receives accept → get media → send offer
       .on('broadcast', { event: 'call:accepted' }, async ({ payload }) => {
-        if (payload.callerId !== userId) return
+        if (payload.callerId !== uid) return
         toast('Connecting call…', { icon: '📞' })
 
         const callType = activeTypeRef.current ?? 'audio'
@@ -150,7 +162,7 @@ export function GlobalCallProvider({ children }) {
 
       // 3. Callee receives offer → answer
       .on('broadcast', { event: 'call:offer' }, async ({ payload }) => {
-        if (payload.calleeId !== userId) return
+        if (payload.calleeId !== uid) return
 
         const stream = await getMedia(payload.callType)
         if (!stream) { hangup(true); return }
@@ -186,7 +198,7 @@ export function GlobalCallProvider({ children }) {
 
       // 4. Caller receives answer → set remote
       .on('broadcast', { event: 'call:answer' }, async ({ payload }) => {
-        if (payload.callerId !== userId) return
+        if (payload.callerId !== uid) return
         const pc = pcRef.current
         if (!pc) return
         await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp))
@@ -196,7 +208,7 @@ export function GlobalCallProvider({ children }) {
       // 5. ICE candidates
       .on('broadcast', { event: 'call:ice-candidate' }, async ({ payload }) => {
         const meta = currentCall.current
-        if (!meta || payload.from === userId || payload.callId !== meta.callId) return
+        if (!meta || payload.from === uid || payload.callId !== meta.callId) return
         const pc = pcRef.current
         if (!pc) return
         if (pc.remoteDescription) {
@@ -219,15 +231,15 @@ export function GlobalCallProvider({ children }) {
       })
 
     return () => { supabase.removeChannel(channelRef.current) }
-  }, [user?.id, getMedia, createPC, drainICE, hangup, broadcast])
+  }, [userId, getMedia, createPC, drainICE, hangup, broadcast])
 
   // ── initiateCall — exposed via Context ───────────────────────────────────
   const initiateCall = useCallback(async (calleeId, callType, calleeProfile) => {
-    if (!user?.id) return
+    if (!userId) return
     const callId = crypto.randomUUID()
     const payload = {
       callId, callType,
-      callerId: user.id,
+      callerId: userId,
       calleeId,
       callerName: profile?.full_name || profile?.email || 'Someone',
       callerAvatar: profile?.avatar_url || null,
@@ -240,7 +252,7 @@ export function GlobalCallProvider({ children }) {
     activeTypeRef.current = callType
     setCallConnected(false)
     await broadcast('call:incoming', payload)
-  }, [user?.id, profile, broadcast])
+  }, [userId, profile, broadcast])
 
   // ── Callee accept / decline ───────────────────────────────────────────────
   const handleAccept = useCallback(async () => {

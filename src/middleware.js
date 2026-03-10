@@ -25,26 +25,33 @@ export async function middleware(request) {
     }
   )
 
-  // Safely get the user — Chrome can sometimes fail the cookie read
+  // IMPORTANT: Always use getUser() (not getSession()) in middleware —
+  // getUser() validates the token server-side on every request.
   let user = null
   try {
     const { data } = await supabase.auth.getUser()
     user = data?.user ?? null
   } catch {
-    // getUser() failed — treat as unauthenticated
     user = null
   }
 
   const { pathname } = request.nextUrl
 
-  // Redirect unauthenticated users away from /chat
+  // ── Root "/" → route based on auth ─────────────────────────────────────
+  if (pathname === '/') {
+    const url = request.nextUrl.clone()
+    url.pathname = user ? '/chat' : '/auth/login'
+    return NextResponse.redirect(url)
+  }
+
+  // ── Protect /chat — unauthenticated → login ────────────────────────────
   if (!user && pathname.startsWith('/chat')) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     return NextResponse.redirect(url)
   }
 
-  // Redirect authenticated users away from /auth (except callback & update-password)
+  // ── Protect /auth — authenticated → chat (except OAuth callback) ────────
   if (
     user &&
     pathname.startsWith('/auth') &&
@@ -60,5 +67,6 @@ export async function middleware(request) {
 }
 
 export const config = {
-  matcher: ['/chat/:path*', '/auth/:path*'],
+  // Include root "/" so the middleware can handle the landing redirect
+  matcher: ['/', '/chat/:path*', '/auth/:path*'],
 }
