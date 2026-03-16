@@ -11,30 +11,59 @@ export function useUser() {
   useEffect(() => {
     const supabase = createClient()
 
-    const fetchProfile = async (userId) => {
-      if (!userId) { setProfile(null); return }
+    const fetchProfile = async (currentUser) => {
+      if (!currentUser?.id) { setProfile(null); return }
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('profiles')
           .select('*')
-          .eq('id', userId)
+          .eq('id', currentUser.id)
           .single()
-        setProfile(data || null)
-      } catch {
-        setProfile(null)
+
+        if (error) {
+          console.error("Error fetching profile:", error.message)
+        }
+
+        setProfile(data || {
+          id: currentUser.id,
+          email: currentUser.email,
+          full_name: currentUser?.user_metadata?.full_name || currentUser.email,
+          avatar_url: currentUser?.user_metadata?.avatar_url || null
+        })
+      } catch (error) {
+        console.error("Exception fetching profile:", error)
+        setProfile({
+          id: currentUser.id,
+          email: currentUser.email,
+          full_name: currentUser?.user_metadata?.full_name || currentUser.email,
+          avatar_url: currentUser?.user_metadata?.avatar_url || null
+        })
       }
     }
+
+    const fetchUserAndProfile = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        const currentUser = session?.user ?? null
+        setUser(currentUser)
+        await fetchProfile(currentUser)
+      } catch (err) {
+        console.error("Error fetching user session:", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchUserAndProfile()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         try {
           const currentUser = session?.user ?? null
           setUser(currentUser)
-          await fetchProfile(currentUser?.id)
+          await fetchProfile(currentUser)
         } catch {
           // swallow any error
-        } finally {
-          setLoading(false)  // ALWAYS called, no matter what
         }
       }
     )
