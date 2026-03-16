@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 async function enrichConversations(supabase, data, userId) {
@@ -68,19 +68,23 @@ export function useConversations(userId) {
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
-  useEffect(() => {
+  const fetchConversations = useCallback(async () => {
     if (!userId) {
       setLoading(false)
       return
     }
+    const { data, error } = await fetchRawConversations(supabase, userId)
+    if (!error) {
+      const enriched = await enrichConversations(supabase, data, userId)
+      setConversations(enriched)
+    }
+    setLoading(false)
+  }, [userId])
 
-    const fetchConversations = async () => {
-      const { data, error } = await fetchRawConversations(supabase, userId)
-      if (!error) {
-        const enriched = await enrichConversations(supabase, data, userId)
-        setConversations(enriched)
-      }
+  useEffect(() => {
+    if (!userId) {
       setLoading(false)
+      return
     }
 
     fetchConversations()
@@ -90,27 +94,19 @@ export function useConversations(userId) {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'conversations' },
-        () => {
-          fetchConversations()
-        }
+        () => { fetchConversations() }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
-        () => {
-          fetchConversations()
-        }
+        () => { fetchConversations() }
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-      const enriched = await enrichConversations(supabase, data, userId)
-      setConversations(enriched)
-    }
-    setLoading(false)
-  }
+  }, [userId, fetchConversations])
 
-  return { conversations, loading, refetch }
+  return { conversations, loading, refetch: fetchConversations }
 }
