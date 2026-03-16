@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, MessageSquare, Users, Bell, UserPlus, LogOut } from 'lucide-react'
+import { Search, MessageSquare, Users, Bell, UserPlus, LogOut, Copy } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { ContactList } from './ContactList'
@@ -39,6 +39,48 @@ export function Sidebar({
     }
     // Force a full page navigation — router.push can fail in Chrome after session clears
     window.location.href = '/auth/login'
+  }
+
+  const handleMessageFriend = async (contactId) => {
+    if (!profile?.id) return;
+    
+    // Attempt to find an existing conversation
+    let conv = conversations.find(c => 
+      (c.participant_1 === profile.id && c.participant_2 === contactId) ||
+      (c.participant_2 === profile.id && c.participant_1 === contactId)
+    );
+
+    if (!conv) {
+      // If none found in state, try to look it up precisely
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('*')
+        .or(`and(participant_1.eq.${profile.id},participant_2.eq.${contactId}),and(participant_1.eq.${contactId},participant_2.eq.${profile.id})`)
+        .maybeSingle();
+
+      if (data) {
+        conv = data;
+      } else {
+        // Fallback: create it dynamically in case it wasn't triggered
+        const [p1, p2] = [profile.id, contactId].sort();
+        const { data: newConv, error: createErr } = await supabase
+          .from('conversations')
+          .insert({ participant_1: p1, participant_2: p2 })
+          .select()
+          .single();
+        
+        if (!createErr && newConv) {
+          conv = newConv;
+        }
+      }
+    }
+
+    if (conv) {
+      router.push(`/chat/${conv.id}`);
+      setTab('Chats');
+    } else {
+      toast.error('Could not open conversation');
+    }
   }
 
   // Filter conversations by search
@@ -136,22 +178,43 @@ export function Sidebar({
               ) : filteredContacts.map(c => {
                 const name = c.nickname || c.contact?.full_name || c.contact?.email || 'User'
                 return (
-                  <div key={c.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
-                    <Avatar src={c.contact?.avatar_url} name={name} size="sm" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{name}</p>
-                      <p className="text-xs text-gray-400 truncate">{c.contact?.email}</p>
+                    <div key={c.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 border-b border-gray-50 group">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Avatar src={c.contact?.avatar_url} name={name} size="sm" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-800 truncate">{name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs text-gray-400 truncate">{c.contact?.email}</p>
+                            <button
+                               onClick={() => {
+                                 navigator.clipboard.writeText(c.contact?.email || '');
+                                 toast.success('Email copied to clipboard!');
+                               }}
+                               className="opacity-0 group-hover:opacity-100 p-0.5 text-gray-400 hover:text-gray-600 transition-opacity"
+                               title="Copy Email"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleMessageFriend(c.contact_id)}
+                        className="p-2 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-xl transition-colors md:opacity-0 md:group-hover:opacity-100"
+                        title="Message"
+                      >
+                        <MessageSquare className="w-4 h-4" />
+                      </button>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+                  )
+                })}
+              </div>
+            )}
 
-          {tab === 'Requests' && (
-            <div className="flex-1 overflow-y-auto">
-              {incomingRequests.length === 0 ? (
-                <div className="flex items-center justify-center h-40 text-sm text-gray-400">
+            {tab === 'Requests' && (
+              <div className="flex-1 overflow-y-auto">
+                {incomingRequests.length === 0 ? (
+                  <div className="flex items-center justify-center h-40 text-sm text-gray-400">
                   No pending requests.
                 </div>
               ) : incomingRequests.map(req => (

@@ -84,13 +84,28 @@ export function useConversations(userId) {
     }
 
     fetchConversations()
-  }, [userId])
 
-  const refetch = async () => {
-    if (!userId) return
-    setLoading(true)
-    const { data, error } = await fetchRawConversations(supabase, userId)
-    if (!error) {
+    const channel = supabase
+      .channel('conversations-realtime-' + userId)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'conversations' },
+        () => {
+          fetchConversations()
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'messages' },
+        () => {
+          fetchConversations()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
       const enriched = await enrichConversations(supabase, data, userId)
       setConversations(enriched)
     }

@@ -24,12 +24,20 @@ export function useUser() {
           console.error("Error fetching profile:", error.message)
         }
 
-        setProfile(data || {
+        const fallback = {
           id: currentUser.id,
           email: currentUser.email,
           full_name: currentUser?.user_metadata?.full_name || currentUser.email,
           avatar_url: currentUser?.user_metadata?.avatar_url || null
-        })
+        }
+
+        setProfile(data ? {
+          ...data,
+          full_name: data.full_name || fallback.full_name,
+          email: data.email || fallback.email,
+          avatar_url: data.avatar_url || fallback.avatar_url
+        } : fallback)
+
       } catch (error) {
         console.error("Exception fetching profile:", error)
         setProfile({

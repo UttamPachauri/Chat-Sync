@@ -139,17 +139,6 @@ export function useFriendRequests(userId) {
     }
 
     if (status === 'accepted') {
-      await supabase.from('contacts').insert([
-        { owner_id: userId, contact_id: senderId },
-        { owner_id: senderId, contact_id: userId },
-      ])
-
-      const [p1, p2] = [userId, senderId].sort()
-      await supabase.from('conversations').insert({
-        participant_1: p1,
-        participant_2: p2,
-      })
-
       setRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'accepted' } : r))
       toast.success('Friend request accepted!')
     } else {
