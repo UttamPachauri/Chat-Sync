@@ -13,7 +13,7 @@ const CHAR_MAX = 2000
 
 const QUICK_EMOJIS = ['😊', '😂', '❤️', '👍', '🙏', '🔥', '😢', '😮']
 
-export function MessageInput({ onSend, disabled }) {
+export function MessageInput({ onSend, onTyping, disabled }) {
   const [text, setText] = useState('')
   const [file, setFile] = useState(null)
   const [sending, setSending] = useState(false)
@@ -64,6 +64,7 @@ export function MessageInput({ onSend, disabled }) {
     setText(val)
     e.target.style.height = 'auto'
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'
+    if (val.length > 0) onTyping?.()
   }
 
   const insertEmoji = (emoji) => {

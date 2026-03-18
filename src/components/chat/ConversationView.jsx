@@ -25,7 +25,7 @@ export function ConversationView({ conversationId, currentUser, otherProfile, ni
   const supabase = createClient()
   const router = useRouter()
 
-  useRealtimeMessages(conversationId, (newMsg) => {
+  const { sendTyping } = useRealtimeMessages(conversationId, currentUser?.id, (newMsg) => {
     addMessage(newMsg)
     // Auto-mark as read if it's from the other user
     if (newMsg.sender_id !== currentUser?.id) {
@@ -35,7 +35,7 @@ export function ConversationView({ conversationId, currentUser, otherProfile, ni
         .eq('id', newMsg.id)
         .then(() => {})
     }
-  })
+  }, setIsTyping)
 
   // Auto scroll to bottom when new message arrives (always scroll for own messages)
   useEffect(() => {
@@ -279,7 +279,7 @@ export function ConversationView({ conversationId, currentUser, otherProfile, ni
       </div>
 
       {/* Input */}
-      <MessageInput onSend={handleSend} disabled={!currentUser} />
+      <MessageInput onSend={handleSend} onTyping={sendTyping} disabled={!currentUser} />
     </div>
   )
 }

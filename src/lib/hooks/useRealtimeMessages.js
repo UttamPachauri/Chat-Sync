@@ -1,11 +1,21 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-export function useRealtimeMessages(conversationId, onNewMessage) {
+export function useRealtimeMessages(conversationId, currentUserId, onNewMessage, onTypingChange) {
   const supabase = createClient()
   const channelRef = useRef(null)
+  const typingTimerRef = useRef(null)
+
+  const sendTyping = useCallback(() => {
+    if (!channelRef.current || !currentUserId) return
+    channelRef.current.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { sender_id: currentUserId },
+    })
+  }, [currentUserId])
 
   useEffect(() => {
     if (!conversationId) return
@@ -30,12 +40,21 @@ export function useRealtimeMessages(conversationId, onNewMessage) {
           if (data) onNewMessage(data)
         }
       )
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!payload?.sender_id || payload.sender_id === currentUserId) return
+        onTypingChange?.(true)
+        clearTimeout(typingTimerRef.current)
+        typingTimerRef.current = setTimeout(() => onTypingChange?.(false), 3000)
+      })
       .subscribe()
 
     return () => {
+      clearTimeout(typingTimerRef.current)
       if (channelRef.current) {
         supabase.removeChannel(channelRef.current)
       }
     }
   }, [conversationId])
+
+  return { sendTyping }
 }
